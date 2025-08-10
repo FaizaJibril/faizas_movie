@@ -7,36 +7,34 @@ import random
 # -------------------
 TMDB_API_KEY = st.secrets["TMDB_API_KEY"]
 BASE_URL = "https://api.themoviedb.org/3"
+IMAGE_BASE = "https://image.tmdb.org/t/p"
 
 # Movie mood → genres (movie genre IDs)
 MOODS_MOVIE = {
     "Anything": {},
-    "Cozy": {"with_genres": "18,10749", "without_genres": "27,53"},          # Drama+Romance, no Horror/Thriller
-    "Feel-Good": {"with_genres": "35,10749", "without_genres": "27,53"},      # Comedy+Romance
-    "Adrenaline": {"with_genres": "28,53"},                                   # Action+Thriller
-    "Spooky": {"with_genres": "27,53"},                                       # Horror+Thriller
-    "Brainy": {"with_genres": "99,36,18"},                                    # Docu+History+Drama
-    "Silly": {"with_genres": "35"},                                           # Comedy
-    "Rom-Com": {"with_genres": "10749,35", "without_genres": "27,53"},        # Romance+Comedy
-    "Family Night": {"with_genres": "10751"},                                 # Family
-    "Short & Sweet (≤100 min)": {"with_runtime.lte": "100"},                  # Movies only
+    "Cozy": {"with_genres": "18,10749", "without_genres": "27,53"},
+    "Feel-Good": {"with_genres": "35,10749", "without_genres": "27,53"},
+    "Adrenaline": {"with_genres": "28,53"},
+    "Spooky": {"with_genres": "27,53"},
+    "Brainy": {"with_genres": "99,36,18"},
+    "Silly": {"with_genres": "35"},
+    "Rom-Com": {"with_genres": "10749,35", "without_genres": "27,53"},
+    "Family Night": {"with_genres": "10751"},
+    "Short & Sweet (≤100 min)": {"with_runtime.lte": "100"},  # Movies only
 }
 
-# TV mood → genres (tv genre IDs are different!)
-# TV genre IDs (common): 16 Animation, 35 Comedy, 80 Crime, 99 Documentary, 18 Drama,
-# 9648 Mystery, 10759 Action & Adventure, 10762 Kids, 10763 News, 10764 Reality,
-# 10765 Sci-Fi & Fantasy, 10766 Soap, 10767 Talk, 10768 War & Politics, 37 Western
+# TV mood → genres (TV genre IDs)
 MOODS_TV = {
     "Anything": {},
-    "Cozy": {"with_genres": "35,18"},                          # Comedy + Drama
-    "Feel-Good": {"with_genres": "35"},                        # Comedy
-    "Adrenaline": {"with_genres": "10759,9648"},               # Action & Adventure + Mystery
-    "Spooky": {"with_genres": "9648,10765"},                   # Mystery + Sci-Fi & Fantasy (TV has no 'Horror' id)
-    "Brainy": {"with_genres": "99,18"},                        # Documentary + Drama
-    "Silly": {"with_genres": "35"},                            # Comedy
-    "Rom-Com": {"with_genres": "35,18"},                       # Approx: Comedy + Drama (TV lacks Romance id)
-    "Family Night": {"with_genres": "10762,16"},               # Kids + Animation
-    "Short & Sweet (≤100 min)": {},                            # Not applicable to TV; ignore runtime
+    "Cozy": {"with_genres": "35,18"},
+    "Feel-Good": {"with_genres": "35"},
+    "Adrenaline": {"with_genres": "10759,9648"},
+    "Spooky": {"with_genres": "9648,10765"},   # TV has no 'Horror' id
+    "Brainy": {"with_genres": "99,18"},
+    "Silly": {"with_genres": "35"},
+    "Rom-Com": {"with_genres": "35,18"},       # approx for TV
+    "Family Night": {"with_genres": "10762,16"},
+    "Short & Sweet (≤100 min)": {},            # ignore for TV
 }
 
 INDUSTRIES = {
@@ -49,57 +47,44 @@ INDUSTRIES = {
     "French": {"with_origin_country": "FR"},
 }
 
-IMAGE_BASE = "https://image.tmdb.org/t/p"
-
 # -------------------
 # HELPERS
 # -------------------
+def poster_url(path, size="w500"):
+    return f"{IMAGE_BASE}/{size}{path}" if path else None
+
 def discover_titles(kind: str, mood: str, industry: str):
-    """
-    kind: 'movie' or 'tv'
-    mood: key from MOODS_MOVIE/MOODS_TV
-    industry: key from INDUSTRIES
-    """
-    # choose endpoint + mood map
+    # pick endpoint + mood map (✅ this was the bug)
     if kind == "movie":
         endpoint = f"{BASE_URL}/discover/movie"
-        mood_filters = dict(MOODS_MOVIE.get(mood, {}))
+        filters = dict(MOODS_MOVIE.get(mood, {}))
     else:
         endpoint = f"{BASE_URL}/discover/tv"
-        mood_filters = dict(MOODS_TV.get(mood, {}))
+        filters = dict(MOODS_TV.get(mood, {}))
 
-    # industry filters
-    filters = {}
-    filters.update(mood_filters)
+    # merge industry filters (⚠️ do not change)
     filters.update(INDUSTRIES.get(industry, {}))
 
-    # Special case: Nollywood + Rom-Com → use OR genres to widen set
-    # - Movies: Romance OR Comedy
-    # - TV: Comedy OR Drama (approx for rom-com vibe)
+    # Special case: Nollywood + Rom-Com → widen with OR genres
     if industry == "Nollywood" and mood == "Rom-Com":
-        if kind == "movie":
-            filters["with_genres"] = "10749|35"
-        else:
-            filters["with_genres"] = "35|18"
+        filters["with_genres"] = "10749|35" if kind == "movie" else "35|18"
 
     params = {
         "api_key": TMDB_API_KEY,
+        "language": "en-US",
         "sort_by": "popularity.desc",
         "include_adult": "false",
-        "language": "en-US",
-        **filters
+        "page": random.randint(1, 5),
+        **filters,
     }
-    # Randomize page for variety
-    params["page"] = random.randint(1, 5)
 
-    # runtime applies to movies only; ensure we don't send it for TV
-    if kind == "tv" and "with_runtime.lte" in params:
+    # TV shouldn’t get movie runtime filter
+    if kind == "tv":
         params.pop("with_runtime.lte", None)
 
-    resp = requests.get(endpoint, params=params, timeout=12)
-    resp.raise_for_status()
-    data = resp.json()
-    return data.get("results", [])
+    r = requests.get(endpoint, params=params, timeout=12)
+    r.raise_for_status()
+    return r.json().get("results", [])
 
 def pick_one(items):
     return random.choice(items) if items else None
@@ -115,22 +100,30 @@ def title_year_vote_overview(item, kind):
     overview = item.get("overview") or "No description available."
     return title, year, vote, overview
 
-def poster_url(path, size="w500"):
-    return f"{IMAGE_BASE}/{size}{path}" if path else None
-
 # -------------------
-# UI
+# UI (tidy, without touching industry behavior)
 # -------------------
+st.set_page_config(page_title="Random Movie Night Picker", page_icon="🎬", layout="centered")
 st.title("🎬 Random Movie Night Picker 🍿")
-st.write("Pick your vibe and I'll fetch you something to watch!")
+st.caption("Pick your vibe + industry, then hit Surprise Me!")
 
-kind = st.segmented_control("Type", ["Movies", "TV Shows"])
-kind_api = "movie" if kind == "Movies" else "tv"
+# top row: type + (dynamic) vibe and industry in two neat columns
+type_choice = st.radio("Type", ["Movies", "TV Shows"], horizontal=True)
+kind_api = "movie" if type_choice == "Movies" else "tv"
 
-mood = st.radio("Pick your vibe:", list(MOODS_MOVIE.keys()), horizontal=True)
-industry = st.radio("Pick industry:", list(INDUSTRIES.keys()), horizontal=True)
+# ✅ use the RIGHT mood map for the chosen type, and separate widget state per type
+active_moods = MOODS_MOVIE if kind_api == "movie" else MOODS_TV
+c1, c2 = st.columns(2)
+with c1:
+    mood = st.selectbox("Pick your vibe:", list(active_moods.keys()), key=f"mood_{kind_api}")
+with c2:
+    # leaving industry control exactly as-is in behavior; just placing in column
+    industry = st.radio("Pick industry:", list(INDUSTRIES.keys()), horizontal=False, key="industry_radio")
 
-if st.button("🎲 Surprise Me!"):
+st.write("")
+go = st.button("🎲 Surprise Me!", use_container_width=True)
+
+if go:
     try:
         results = discover_titles(kind_api, mood, industry)
     except requests.HTTPError as e:
@@ -139,28 +132,26 @@ if st.button("🎲 Surprise Me!"):
 
     pick = pick_one(results)
     if not pick:
-        st.error("No titles found for that combo. Try a different vibe or industry!")
+        st.warning("No titles found for that combo. Try a different vibe or industry.")
     else:
         title, year, vote, overview = title_year_vote_overview(pick, kind_api)
         poster = poster_url(pick.get("poster_path"))
 
-        if poster:
-            st.image(poster, width=300)
-
-        badge = "🎥" if kind_api == "movie" else "📺"
-        st.subheader(f"Tonight’s pick: {badge} {title}")
-        parts = []
-        if year: parts.append(year)
-        if vote is not None: parts.append(f"⭐ {vote:.1f}")
-        if parts: st.caption(" · ".join(parts))
+        # nice, centered card-ish look without custom CSS
+        st.subheader(f"{'🎥' if kind_api=='movie' else '📺'} Tonight’s pick: **{title}**")
+        bits = []
+        if year: bits.append(year)
+        if vote is not None: bits.append(f"⭐ {vote:.1f}")
+        if bits: st.caption(" · ".join(bits))
+        if poster: st.image(poster, width=320)
         st.write(overview)
 
-        # Other ideas
-        st.markdown("### Other ideas")
-        others = [it for it in results if it.get("id") != pick.get("id")]
-        for alt in random.sample(others, k=min(5, len(others))):
+        st.divider()
+        st.subheader("Other ideas")
+        others = [i for i in results if i.get("id") != pick.get("id")]
+        for alt in random.sample(others, k=min(4, len(others))):
             a_title, a_year, a_vote, _ = title_year_vote_overview(alt, kind_api)
-            st.write(f"{'🎥' if kind_api=='movie' else '📺'} **{a_title}** — {a_year} · ⭐ {a_vote if a_vote is not None else 'N/A'}")
+            icon = "🎥" if kind_api == "movie" else "📺"
+            st.write(f"{icon} **{a_title}** — {a_year} · ⭐ {a_vote if a_vote is not None else 'N/A'}")
 
-st.markdown("---")
 st.caption("This product uses the TMDB API but is not endorsed or certified by TMDB.")
