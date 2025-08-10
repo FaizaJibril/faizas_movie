@@ -153,5 +153,3 @@ if go:
             a_title, a_year, a_vote, _ = title_year_vote_overview(alt, kind_api)
             icon = "🎥" if kind_api == "movie" else "📺"
             st.write(f"{icon} **{a_title}** — {a_year} · ⭐ {a_vote if a_vote is not None else 'N/A'}")
-
-st.caption("This product uses the TMDB API but is not endorsed or certified by TMDB.")
